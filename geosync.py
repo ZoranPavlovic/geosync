@@ -4,11 +4,11 @@
 # files used for stitching and SFM processing
 
 available_libs = []
+
 try:
     import flytrex
-
     available_libs.append("flytrex")
-except:
+except ImportError:
     pass
 
 import glob
@@ -17,10 +17,8 @@ from optparse import OptionParser, OptionGroup
 import logging
 
 logger = logging.getLogger(__name__)
-import re
-import csv
 
-from flight import FlightSyncLog
+from .flight import FlightSyncLog
 
 
 class GeosyncLogRecord(object):
@@ -153,7 +151,6 @@ if __name__ == '__main__':
         exifDateStr = tags['EXIF DateTimeDigitized'].values
         exifDate = datetime.strptime(exifDateStr, "%Y:%m:%d %H:%M:%S")
         diff = exifDate - imgDate
-        print
         diff.total_seconds()
     elif options.geotag:
         # Lets pull it all together and geotag some photos

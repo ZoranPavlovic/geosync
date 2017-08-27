@@ -3,26 +3,12 @@
 # Decode FlyTrex files
 
 import csv
-import math
 import struct
-from datetime import datetime, timedelta
-import os
+from datetime import datetime
 import flight
+import sys
 
 
-# from geosyncgeneric import GeoSyncGPSData
-
-
-########## In geosync.py
-# class GeoSyncGPSData(object):
-#    def __init__(self, time, lat, lon, alt):
-#        self.time=time
-#        self.lat=lat
-#        self.lon=lon
-#        self.alt=alt
-################
-
-# class FlyTrexGPSData(GeoSyncGPSData):
 class FlyTrexGPSData(object):
     def __init__(self, time, lat, lon, alt):
         '''
@@ -36,7 +22,7 @@ class FlyTrexGPSData(object):
         self.lon = lon
         self.alt = alt
 
-    def toDict(self):
+    def to_dict(self):
         return {
             "Time": self.time,
             "Lat": self.lat,
@@ -75,7 +61,7 @@ class FlyTrexLog(object):
 
             writer.writeheader()
             for log_entry in self.log:
-                writer.writerow(log_entry.toDict())
+                writer.writerow(log_entry.to_dict())
 
     def decode_mask(self, data, mask):
         b = bytearray(data)
@@ -288,7 +274,6 @@ class FlyTrexLog(object):
 
 
 def main():
-    import sys
     myLog = FlyTrexLog(sys.argv[1])
     myLog.writeCSV("foo")
 
