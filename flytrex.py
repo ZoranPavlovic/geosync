@@ -4,13 +4,20 @@
 
 import csv
 import struct
-from datetime import datetime
+from datetime import datetime, timedelta
 import flight
 import sys
+import os
+
+DATETIME_FORMAT = "%Y-%m-%d %H:%M:%S.%f"
+DATETIME_FORMAT_SMALLER = "%Y-%m-%d %H:%M:%S"
+
+GPS_PRECISION_DECIMAL_PLACES = 6
+GPS_COORD_FORMAT = "%." + str(GPS_PRECISION_DECIMAL_PLACES) + "f"
 
 
 class FlyTrexGPSData(object):
-    def __init__(self, time, lat, lon, alt):
+    def __init__(self, time, lat, lon, alt, max_alt):
         '''
         A FlyTrexGPSData object is the structure to hold a single GPS record
         '''
@@ -22,16 +29,32 @@ class FlyTrexGPSData(object):
         self.lon = lon
         self.alt = alt
 
+        self.max_altitude = max_alt
+
+
     def to_dict(self):
+        the_time = self.time.strftime(DATETIME_FORMAT)
         return {
-            "Time": self.time,
-            "Lat": self.lat,
-            "Lon": self.lon,
-            "Alt": self.alt,
+            # "latitude": GPS_COORD_FORMAT % round(self.lat, GPS_PRECISION_DECIMAL_PLACES),
+            # "longitude": GPS_COORD_FORMAT % round(self.lon, GPS_PRECISION_DECIMAL_PLACES),
+            "latitude": self.lat,
+            "longitude": self.lon,
+            "altitude(feet)": self.alt,
+            "ascent(feet)": 0,
+            "speed(mph)": 0,
+            "distance(feet)": 0,
+            "max_altitude(feet)": self.max_altitude,
+            "max_ascent(feet)": 0,
+            "max_speed(mph)": 0,
+            "max_distance(feet)": 0,
+            "datetime(local)": the_time,
+            "datetime(utc)": the_time,
         }
 
     def __str__(self):
         return ",".join(map(str, [self.time, self.lat, self.lon, self.alt]))
+
+NIGHT_ERROR_MSG = "ERROR WITH SINGLE TIME: Trying to force_night but forces hours over 24 hours... are you sure you need to force_night?"
 
 
 class FlyTrexLog(object):
@@ -54,9 +77,11 @@ class FlyTrexLog(object):
         # print "log = " + str(len(self.log))
         self.flight = flight.FlightLog(self.log_new)
 
-    def writeCSV(self, filename):
-        with open('%s.csv' % filename, 'w') as csvfile:
-            fieldnames = ['Lon', 'Time', 'Lat', 'Alt']
+    def writeCSV(self):
+        filepath = '%s.csv' % os.path.split(self.filename)[1]
+        print("Writing output to [%s] in [%s]" % (filepath, os.getcwd()))
+        with open(filepath, 'w') as csvfile:
+            fieldnames = ["latitude","longitude","altitude(feet)","ascent(feet)","speed(mph)","distance(feet)","max_altitude(feet)","max_ascent(feet)","max_speed(mph)","max_distance(feet)","time(millisecond)","datetime(utc)","datetime(local)","satellites","pressure(Pa)","temperature(F)"]
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
 
             writer.writeheader()
@@ -79,18 +104,22 @@ class FlyTrexLog(object):
     def decode(self, raw_data):
         current_offset = self.first_packet_offset
         # if we have more bytes than the initial header
+
+        second_grouping = {}
+
+        max_altitude = 0
+
         if len(raw_data) > self.first_packet_offset:
             while current_offset + 4 < len(raw_data):
                 message_header = struct.unpack('>H', raw_data[current_offset:current_offset + 2])[0]
-                # print "message header:" + hex(message_header)
+                # print("message header:" + hex(message_header))
                 # Assert that the packet_type is 0x55aa
                 if (message_header != 0x55aa):
-                    # print "Have to skip and keep looking as this header is wrong"
                     current_offset = current_offset + 1
                     continue
-                current_offset = current_offset + 2
+                current_offset += 2
                 message_type = struct.unpack('B', raw_data[current_offset:current_offset + 1])[0]
-                # print "message type:" + hex(message_type)
+                # print("message type:" + hex(message_type))
                 current_offset = current_offset + 1
 
                 message_length = struct.unpack('B', raw_data[current_offset:current_offset + 1])[0]
@@ -101,6 +130,7 @@ class FlyTrexLog(object):
                 next_offset = current_offset + message_length + 2
                 if (next_offset + 2) >= len(raw_data):
                     break
+
                 next_header = struct.unpack('>h', raw_data[next_offset:next_offset + 2])[0]
 
                 # Check all the params before moving on...
@@ -126,8 +156,7 @@ class FlyTrexLog(object):
                     # check if we need to force the timestamp up by 16 (force night)
                     if self.force_night:
                         if (hour + 16) > 24:
-                            print(
-                                "ERROR WITH SINGLE TIME: Trying to force_night but forces hours over 24 hours... are you sure you need to force_night?")
+                            print(NIGHT_ERROR_MSG)
                         hour = hour + 16
                     time >>= 4
                     day = time & 0b00011111
@@ -139,14 +168,13 @@ class FlyTrexLog(object):
                     year = time & 0b01111111
                     year = year + 2000
                     try:
-                        # For some reason we have to subtract one day... need to figure out why
-                        # dt = datetime(year, month, day, hour, minute, second) - timedelta(days=1)
                         dt = datetime(year, month, day, hour, minute, second)
                         point.date = dt
-                        # print dt
-                    except:
+
+                    except Exception as ex:
                         point.date = 0
-                        print("ERROR WITH SINGLE TIME: %d %d %d %d %d %d" % (year, month, day, hour, minute, second))
+                        print("ERROR [%s ]WITH SINGLE TIME: %d %d %d %d %d %d" % (
+                        ex, year, month, day, hour, minute, second))
                         continue
 
                     current_offset = current_offset + 4
@@ -267,15 +295,50 @@ class FlyTrexLog(object):
                 # Account for the checksum
                 current_offset = current_offset + 2
 
-                if message_type == 0x10:
-                    self.log.append(FlyTrexGPSData(dt, latitude, longitude, altitude * 3.28084))
+                if message_type == 0x10 and vert_acc > 0:
+                    if altitude > max_altitude:
+                        max_altitude = altitude
+
+                    newData = FlyTrexGPSData(dt, latitude, longitude, altitude * 3.28084, max_altitude * 3.28084)
+                    self.log.append(newData)
+                    self.fix_ms_interpolation(newData, second_grouping)
                     self.log_new.append(point)
-                    # print "GPS Data - " + str(longitude) + ' ' + str(latitude) + ' ' + str(altitude*3.28084) + 'f'
+
+    def fix_ms_interpolation(self, newData, second_grouping):
+        key = newData.time.strftime(DATETIME_FORMAT_SMALLER)
+        if key not in second_grouping.keys():
+            group_list = []
+            second_grouping[key] = group_list
+        else:
+            group_list = second_grouping[key]
+        group_list.append(newData)
+
+        if len(group_list) == 4:
+            group_list[1].time += timedelta(milliseconds=250)
+            group_list[2].time += timedelta(milliseconds=500)
+            group_list[3].time += timedelta(milliseconds=750)
+
+        prev_grouping_time = newData.time - timedelta(seconds=1)
+        prev_key = prev_grouping_time.strftime(DATETIME_FORMAT_SMALLER)
+        prev_grouping_list = second_grouping.get(prev_key, None)
+
+        if prev_grouping_list is None:
+            """In case there isn't a previous list"""
+            return
+
+        for item in prev_grouping_list:
+            """In case we've already interpolated the last group"""
+            if item.time.strftime("%f") != "000000":
+                return
+
+        if len(prev_grouping_list) == 3:
+            prev_grouping_list[1].time += timedelta(milliseconds=500)
+            prev_grouping_list[2].time += timedelta(milliseconds=750)
 
 
 def main():
     myLog = FlyTrexLog(sys.argv[1])
-    myLog.writeCSV("foo")
+    myLog.writeCSV()
 
 
 if __name__ == '__main__':
