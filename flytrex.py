@@ -2,6 +2,7 @@
 
 # Decode FlyTrex files
 
+import csv
 import math
 import struct
 from datetime import datetime, timedelta
@@ -9,7 +10,6 @@ import os
 import flight
 # from geosyncgeneric import GeoSyncGPSData
 
-filename = '00000004.FPV'
 
 ########## In geosync.py
 #class GeoSyncGPSData(object):
@@ -34,6 +34,14 @@ class FlyTrexGPSData(object):
         self.lon=lon
         self.alt=alt
 
+    def toDict(self):
+        return {
+            "Time":self.time,
+            "Lat":self.lat,
+            "Lon":self.lon,
+            "Alt":self.alt,
+        }
+
     def __str__(self):
         return ",".join(map(str,[self.time, self.lat, self.lon, self.alt]))
 
@@ -57,6 +65,14 @@ class FlyTrexLog(object):
         #print "log = " + str(len(self.log))
         self.flight = flight.FlightLog(self.log_new)
 
+    def writeCSV(self, filename):
+        with open('%s.csv' % filename, 'w') as csvfile:
+            fieldnames = ['Lon', 'Time', 'Lat', 'Alt']
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+
+            writer.writeheader()
+            for log_entry in self.log:
+                writer.writerow(log_entry.toDict())
 
     def decode_mask(self,data,mask):
         b = bytearray(data)
@@ -122,7 +138,7 @@ class FlyTrexLog(object):
                     # check if we need to force the timestamp up by 16 (force night)
                     if self.force_night:
                         if (hour+16) > 24:
-                            print "ERROR WITH SINGLE TIME: Trying to force_night but forces hours over 24 hours... are you sure you need to force_night?"
+                            print("ERROR WITH SINGLE TIME: Trying to force_night but forces hours over 24 hours... are you sure you need to force_night?")
                         hour = hour + 16
                     time >>= 4
                     day = time & 0b00011111
@@ -141,7 +157,7 @@ class FlyTrexLog(object):
                         #print dt
                     except:
                         point.date = 0
-                        print "ERROR WITH SINGLE TIME: %d %d %d %d %d %d" % (year, month, day, hour, minute, second)
+                        print("ERROR WITH SINGLE TIME: %d %d %d %d %d %d" % (year, month, day, hour, minute, second))
                         continue
 
                     current_offset=current_offset+4
@@ -270,7 +286,8 @@ class FlyTrexLog(object):
 
 
 def main():
-    myLog = FlyTrexLog(filename)
+    import sys
+    myLog = FlyTrexLog(sys.argv[1])
     myLog.writeCSV("foo")
 
 if __name__=='__main__':

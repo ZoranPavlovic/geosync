@@ -5,6 +5,8 @@ import os
 import csv
 import copy
 from datetime import datetime
+import exifread
+from datetime import datetime, timedelta
 
 # order the points by time
 
@@ -80,7 +82,7 @@ class FlightLog(object):
             # Add in the image filename if it is there
             if hasattr(self.features[0].properties, 'image'):
                 header.extend(['image'])
-            print ','.join(header)
+            print(','.join(header))
             idcounter = 0
             for x in self.features:
                 row = []
@@ -91,7 +93,7 @@ class FlightLog(object):
                 row.append(x.properties.altitude)
                 if hasattr(x.properties, 'image'):
                     row.append(x.properties.image)
-                print ','.join(map(str, row))
+                print(','.join(map(str, row)))
                 idcounter=idcounter+1
 
     def add_images(self, matches):
@@ -105,15 +107,12 @@ class FlightSyncLog(FlightLog):
         super(FlightSyncLog, self).__init__()
 
     def add_image(self, image, log, offset=0):
-
         # Find the image date
-	import exifread
-	from datetime import datetime, timedelta
-	f = open(image, 'rb')
-	tags = exifread.process_file(f)
-	f.close()
-	exifDateStr = tags['EXIF DateTimeDigitized'].values
-	exifDate = datetime.strptime(exifDateStr, "%Y:%m:%d %H:%M:%S")
+        f = open(image, 'rb')
+        tags = exifread.process_file(f)
+        f.close()
+        exifDateStr = tags['EXIF DateTimeDigitized'].values
+        exifDate = datetime.strptime(exifDateStr, "%Y:%m:%d %H:%M:%S")
 
         # Apply offset to the datetime
         searchDate = exifDate + timedelta(seconds=int(offset))
